@@ -8,9 +8,9 @@ static std::vector<StabsField> parse_field_list(const char*& input);
 static std::vector<StabsMemberFunction> parse_member_functions(const char*& input);
 static s8 eat_s8(const char*& input);
 static s64 eat_s64_literal(const char*& input);
-static std::string eat_identifier(const char*& input);
+static std::string eat_identifier(const char*& input, bool handleScopeResOperator = 0);
 static void expect_s8(const char*& input, s8 expected, const char* subject);
-static void validate_symbol_descriptor(StabsSymbolDescriptor descriptor);
+static void validate_symbol_descriptor(StabsSymbolDescriptor descriptor, StabsSymbol& sym, const char* in);
 static void print_field(const StabsField& field);
 
 static const char* ERR_END_OF_INPUT =
@@ -56,7 +56,7 @@ StabsSymbol parse_stabs_symbol(const char* input) {
 	
 	StabsSymbol symbol;
 	symbol.raw = std::string(input);
-	symbol.name = eat_identifier(input);
+	symbol.name = eat_identifier(input, true);
 	expect_s8(input, ':', "identifier");
 	verify(*input != '\0', ERR_END_OF_INPUT);
 	if(*input >= '0' && *input <= '9') {
@@ -64,7 +64,7 @@ StabsSymbol parse_stabs_symbol(const char* input) {
 	} else {
 		symbol.descriptor = (StabsSymbolDescriptor) eat_s8(input);
 	}
-	validate_symbol_descriptor(symbol.descriptor);
+	validate_symbol_descriptor(symbol.descriptor, symbol, input);
 	verify(*input != '\0', ERR_END_OF_INPUT);
 	if(*input == 't') {
 		input++;
@@ -156,7 +156,7 @@ static StabsType parse_type(const char*& input) {
 			type.struct_or_union.member_functions = parse_member_functions(input);
 			STABS_DEBUG_PRINTF("}\n");
 			break;
-		case StabsTypeDescriptor::CROSS_REFERENCE: // x
+		case StabsTypeDescriptor::CROSS_REFERENCE: { // x
 			type.cross_reference.type = eat_s8(input);
 			switch(type.cross_reference.type) {
 				case 's': // struct
@@ -167,10 +167,27 @@ static StabsType parse_type(const char*& input) {
 					verify_not_reached("error: Invalid cross reference type '%c'.\n",
 						type.cross_reference.type);
 			}
-			type.cross_reference.identifier = eat_identifier(input);
+			// Handle scope resolution operator
+			std::vector<std::string> scopeResOpStrings = {
+				"STL::pair"//,"UTL::COM","Speech::","Sound::","Hermes::Handler *",
+				//"Hermes::_h_HHANDLER__ *const,Hermes::PortKey"
+			};
+			std::vector<size_t> it;
+			bool handleScopeResOp = false;
+			for (int i = 0; i < scopeResOpStrings.size(); ++i)
+				it.push_back(std::string(input).find(scopeResOpStrings[i]));
+			for (int i = 0; i < it.size(); ++i) {
+				if (it.at(i) != std::string::npos)
+					handleScopeResOp = true;
+			}
+			if (handleScopeResOp)
+				type.cross_reference.identifier = eat_identifier(input, true);
+			else
+				type.cross_reference.identifier = eat_identifier(input);
 			type.name = type.cross_reference.identifier;
 			expect_s8(input, ':', "cross reference");
 			break;
+			}
 		case StabsTypeDescriptor::METHOD: // #
 			if(*input == '#') {
 				input++;
@@ -210,8 +227,13 @@ static StabsType parse_type(const char*& input) {
 
 static std::vector<StabsField> parse_field_list(const char*& input) {
 	std::vector<StabsField> fields;
+	bool hasEnumInStruct = false;
 	while(*input != '\0') {
-		if(*input == ';') {
+		if (std::string(input).find(",;,") != std::string::npos)
+			hasEnumInStruct = true;
+		else
+			hasEnumInStruct = false;
+		if (*input == ';' && !hasEnumInStruct) {
 			input++;
 			break;
 		}
@@ -239,6 +261,8 @@ static std::vector<StabsField> parse_field_list(const char*& input) {
 			break;
 		}
 		field.type = parse_type(input);
+		if (*input == ';' && hasEnumInStruct)
+			input++;
 		if(field.name.size() >= 1 && field.name[0] == '$') {
 			// Not sure.
 			expect_s8(input, ',', "field type");
@@ -256,6 +280,17 @@ static std::vector<StabsField> parse_field_list(const char*& input) {
 			field.size = eat_s64_literal(input);
 			expect_s8(input, ';', "field size");
 		} else {
+			std::cout << '\n' << "Exception:"
+				<< "\nInput: " << *input
+				<< "\nbefore_field: " << before_field
+				<< "\nField name: " << field.name
+				<< "\nField type descriptor: " << (s8)field.type.descriptor
+				<< "\nField type number: " << field.type.type_number
+				<< "\nField type has body: " << field.type.has_body
+				<< "\nField type is anonymous: " << field.type.anonymous
+				<< "\nField visibility: " << (s8)field.visibility
+				<< "\nField offset: " << field.offset
+				<< "\nField size: " << field.size << '\n';
 			verify_not_reached("error: Expected ':' or ',', got '%c' (%hhx).\n", *input, *input);
 		}
 
@@ -292,7 +327,7 @@ static std::vector<StabsMemberFunction> parse_member_functions(const char*& inpu
 			field.type = parse_type(input);
 			
 			expect_s8(input, ':', "member function");
-			eat_identifier(input);
+			eat_identifier(input, true);
 			expect_s8(input, ';', "member function");
 			field.visibility = (StabsFieldVisibility) eat_s8(input);
 			switch(field.visibility) {
@@ -374,19 +409,33 @@ static s64 eat_s64_literal(const char*& input) {
 	}
 }
 
-static std::string eat_identifier(const char*& input) {
+static std::string eat_identifier(const char*& input, bool handleScopeResOperator) {
 	std::string identifier;
 	bool first = true;
+	char prev = '\0';
 	for(; *input != '\0'; input++) {
 		bool valid_char = false;
 		valid_char |= isprint(*input) && *input != ':' && *input != ';';
 		valid_char |= !first && isalnum(*input);
 		if(valid_char) {
 			identifier += *input;
+		} else if (*input == ':' && handleScopeResOperator) {
+			std::string s = std::string(input, 0, 4);
+			if (s.size() >= 2) {
+				if (s.size() == 4) {
+					if (s[2] == 'Q' && s[3] == '2') // No longer in identifier
+						return identifier;
+				}
+				if (s[0] == ':' && s[1] != ':' && prev != ':') // Type specifier
+					return identifier;
+				if (s[0] == ':' && s[1] == ':')
+					identifier += s.substr(0, 2);
+			}
 		} else {
 			return identifier;
 		}
 		first = false;
+		prev = *input;
 	}
 	verify_not_reached(ERR_END_OF_INPUT);
 }
@@ -397,7 +446,7 @@ static void expect_s8(const char*& input, s8 expected, const char* subject) {
 	verify(val == expected, "error: Expected '%c' in %s, got '%c'.\n", expected, subject, val);
 }
 
-static void validate_symbol_descriptor(StabsSymbolDescriptor descriptor) {
+static void validate_symbol_descriptor(StabsSymbolDescriptor descriptor, StabsSymbol& sym, const char* in) {
 	switch(descriptor) {
 		case StabsSymbolDescriptor::LOCAL_VARIABLE:
 		case StabsSymbolDescriptor::A:
@@ -413,6 +462,22 @@ static void validate_symbol_descriptor(StabsSymbolDescriptor descriptor) {
 		case StabsSymbolDescriptor::STATIC_LOCAL_VARIABLE:
 			break;
 		default:
+			std::cout << '\n' << "Exception:"
+				<< "\nInput: " << in
+				<< "\nSymbol descriptor param: " << (s8)descriptor
+				<< "\nSymbol name: " << sym.name
+				<< "\nSymbol name (raw): " << sym.raw
+				<< "\nSymbol descriptor: " << (s8)sym.descriptor
+				<< "\nSymbol type descriptor: " << (s8)sym.type.descriptor
+				<< "\nSymbol type number: " << sym.type.type_number
+				<< "\nSymbol type anonymous" << sym.type.anonymous
+				<< "\nSymbol type has body: " << sym.type.has_body
+				<< "\nSymbol underlying string: " << sym.mdebug_symbol.string
+				<< "\nSymbol underlying value: " << sym.mdebug_symbol.value
+				<< "\nSymbol underlying index: " << sym.mdebug_symbol.index
+				<< "\nSymbol underlying type: " << (u32)sym.mdebug_symbol.storage_type
+				<< "\nSymbol underlying class: " << (u32)sym.mdebug_symbol.storage_class
+				<< '\n';
 			verify_not_reached("error: Unknown symbol descriptor: %c.\n", (s8) descriptor);
 	}
 }

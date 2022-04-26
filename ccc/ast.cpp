@@ -82,6 +82,11 @@ static TypeName resolve_c_type_name(const std::map<s32, const StabsType*>& types
 			name.array_indices.push_back(index->range_type.high + 1);
 			return name;
 		}
+		case StabsTypeDescriptor::ENUM: {
+			TypeName type_name;
+			type_name.first_part += "!!TYPE_NUMBER_" + std::to_string(type.type_number);
+			return type_name;
+		}
 		case StabsTypeDescriptor::FUNCTION: {
 			return {"/* function */ void*", {}};
 		}

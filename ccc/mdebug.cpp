@@ -1,31 +1,31 @@
 #include "ccc.h"
 
 packed_struct(SymbolicHeader,
-	s16 magic;
-	s16 vstamp;
-	s32 iline_max;
-	s32 cb_line;
-	s32 cb_line_offset;
-	s32 idn_max;
-	s32 cb_dn_offset;
-	s32 ipd_max;
-	s32 cb_pd_offset;
-	s32 isym_max;
-	s32 cb_sym_offset;
-	s32 iopt_max;
-	s32 cb_opt_offset;
-	s32 iaux_max;
-	s32 cb_aux_offset;
-	s32 iss_max;
-	s32 cb_ss_offset;
-	s32 iss_ext_max;
-	s32 cb_ss_ext_offset;
-	s32 ifd_max;
-	s32 cb_fd_offset;
-	s32 crfd;
-	s32 cb_rfd_offset;
-	s32 iext_max;
-	s32 cb_ext_offset;
+	s16 magic;            // 0x00
+	s16 vstamp;           // 0x02
+	s32 iline_max;        // 0x04
+	s32 cb_line;          // 0x08
+	s32 cb_line_offset;   // 0x0c
+	s32 idn_max;          // 0x10
+	s32 cb_dn_offset;     // 0x14
+	s32 ipd_max;          // 0x18
+	s32 cb_pd_offset;     // 0x1c
+	s32 isym_max;         // 0x20
+	s32 cb_sym_offset;    // 0x24
+	s32 iopt_max;         // 0x28
+	s32 cb_opt_offset;    // 0x2c
+	s32 iaux_max;         // 0x30
+	s32 cb_aux_offset;    // 0x34
+	s32 iss_max;          // 0x38
+	s32 cb_ss_offset;     // 0x3c
+	s32 iss_ext_max;      // 0x40
+	s32 cb_ss_ext_offset; // 0x44
+	s32 ifd_max;          // 0x48
+	s32 cb_fd_offset;     // 0x4c
+	s32 crfd;             // 0x50
+	s32 cb_rfd_offset;    // 0x54
+	s32 iext_max;         // 0x58
+	s32 cb_ext_offset;    // 0x5c
 )
 
 packed_struct(ProcedureDescriptorEntry,

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <inttypes.h>
+#include <string>
 
 // *****************************************************************************
 // util.cpp
